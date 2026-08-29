@@ -1,0 +1,855 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+
+<title>Green Footprint Tracker</title>
+
+<link
+rel="stylesheet"
+href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+/>
+
+<style>
+
+*{
+    box-sizing:border-box;
+}
+
+body{
+    margin:0;
+    font-family:Arial,sans-serif;
+    background:#f4f7f6;
+    color:#17231d;
+}
+
+header{
+    background:#143d2b;
+    color:white;
+    padding:18px 30px;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+}
+
+header h1{
+    margin:0;
+    font-size:22px;
+}
+
+.container{
+    max-width:1250px;
+    margin:25px auto;
+    padding:0 18px;
+}
+
+.grid{
+    display:grid;
+    grid-template-columns:350px 1fr;
+    gap:20px;
+}
+
+.card{
+    background:white;
+    border-radius:15px;
+    padding:20px;
+    box-shadow:0 4px 18px rgba(0,0,0,.08);
+    margin-bottom:20px;
+}
+
+label{
+    display:block;
+    margin-top:12px;
+    font-weight:bold;
+}
+
+input,select,button{
+    width:100%;
+    padding:11px;
+    margin-top:6px;
+    border-radius:8px;
+    border:1px solid #ccd5cf;
+}
+
+button{
+    background:#176b45;
+    color:white;
+    border:none;
+    cursor:pointer;
+    font-weight:bold;
+    margin-top:15px;
+}
+
+button:hover{
+    opacity:.9;
+}
+
+#map{
+    height:520px;
+    border-radius:12px;
+}
+
+.stats{
+    display:grid;
+    grid-template-columns:repeat(4,1fr);
+    gap:12px;
+}
+
+.stat{
+    background:white;
+    padding:15px;
+    border-radius:12px;
+    text-align:center;
+}
+
+.stat strong{
+    display:block;
+    font-size:25px;
+    margin-top:5px;
+}
+
+.status{
+    padding:10px;
+    background:#eef7f1;
+    border-radius:8px;
+    margin-top:10px;
+}
+
+@media(max-width:850px){
+    .grid{
+        grid-template-columns:1fr;
+    }
+
+    .stats{
+        grid-template-columns:repeat(2,1fr);
+    }
+}
+
+</style>
+</head>
+
+<body>
+
+<header>
+
+<h1>🌱 Green Footprint Tracker</h1>
+
+<div id="connection">
+● Connecting...
+</div>
+
+</header>
+
+
+<div class="container">
+
+<div class="stats">
+
+<div class="stat">
+Deliveries
+<strong id="deliveries">0</strong>
+</div>
+
+<div class="stat">
+Total CO₂
+<strong id="totalCarbon">0 kg</strong>
+</div>
+
+<div class="stat">
+GPS Points
+<strong id="gpsPoints">0</strong>
+</div>
+
+<div class="stat">
+System
+<strong>LIVE</strong>
+</div>
+
+</div>
+
+
+<br>
+
+
+<div class="grid">
+
+<div>
+
+<div class="card">
+
+<h2>🚚 Delivery Planner</h2>
+
+<label>Pickup</label>
+
+<input
+id="pickup"
+value="Nagpur, Maharashtra"
+/>
+
+<label>Destination</label>
+
+<input
+id="destination"
+value="Wardha, Maharashtra"
+/>
+
+<label>Parcel Weight (kg)</label>
+
+<input
+id="weight"
+type="number"
+value="10"
+/>
+
+<label>Vehicle</label>
+
+<select id="vehicle">
+
+<option value="diesel_van">
+Diesel Van
+</option>
+
+<option value="petrol_car">
+Petrol Car
+</option>
+
+<option value="electric_van">
+Electric Van
+</option>
+
+<option value="bike">
+Delivery Bike
+</option>
+
+</select>
+
+<label>Vehicle Age (years)</label>
+
+<input
+id="vehicleAge"
+type="number"
+value="5"
+/>
+
+<button onclick="calculateRoute()">
+Calculate Eco Route
+</button>
+
+<div id="routeResult" class="status">
+Enter locations and calculate route.
+</div>
+
+</div>
+
+
+<div class="card">
+
+<h2>🌦️ Live Environment</h2>
+
+<div id="weather">
+Loading...
+</div>
+
+<hr>
+
+<div id="aqi">
+Loading...
+</div>
+
+<button onclick="refreshEnvironment()">
+Refresh Live Data
+</button>
+
+</div>
+
+
+<div class="card">
+
+<h2>📍 Live Driver Tracking</h2>
+
+<div id="gpsStatus" class="status">
+GPS not started.
+</div>
+
+<button onclick="startTracking()">
+Start Live GPS
+</button>
+
+</div>
+
+</div>
+
+
+<div>
+
+<div class="card">
+
+<h2>🗺️ Live Delivery Map</h2>
+
+<div id="map"></div>
+
+</div>
+
+<div class="card">
+
+<h2>🌱 Carbon Analysis</h2>
+
+<div id="carbonResult">
+No route calculated yet.
+</div>
+
+</div>
+
+</div>
+
+</div>
+
+</div>
+
+
+<script
+src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
+</script>
+
+
+<script>
+
+let map;
+
+let driverMarker;
+
+let routeLayer;
+
+let pickupLocation;
+
+let destinationLocation;
+
+let socket;
+
+
+function initMap(){
+
+    map = L.map("map").setView(
+        [21.1458,79.0882],
+        10
+    );
+
+    L.tileLayer(
+        "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        {
+            maxZoom:19,
+            attribution:
+            "&copy; OpenStreetMap contributors"
+        }
+    ).addTo(map);
+
+}
+
+
+async function geocode(query){
+
+    const response =
+        await fetch(
+            "/api/geocode?q=" +
+            encodeURIComponent(query)
+        );
+
+    if(!response.ok){
+
+        throw new Error(
+            "Location not found"
+        );
+
+    }
+
+    return await response.json();
+
+}
+
+
+async function calculateRoute(){
+
+    try{
+
+        document.getElementById(
+            "routeResult"
+        ).innerText =
+            "Finding real road route...";
+
+        const pickup =
+            await geocode(
+                document.getElementById(
+                    "pickup"
+                ).value
+            );
+
+        const destination =
+            await geocode(
+                document.getElementById(
+                    "destination"
+                ).value
+            );
+
+        pickupLocation = pickup;
+
+        destinationLocation = destination;
+
+
+        const weight =
+            parseFloat(
+                document.getElementById(
+                    "weight"
+                ).value
+            );
+
+        const vehicle =
+            document.getElementById(
+                "vehicle"
+            ).value;
+
+        const vehicleAge =
+            parseFloat(
+                document.getElementById(
+                    "vehicleAge"
+                ).value
+            );
+
+
+        const url =
+            `/api/eco-route?` +
+            `start_lat=${pickup.lat}` +
+            `&start_lon=${pickup.lon}` +
+            `&end_lat=${destination.lat}` +
+            `&end_lon=${destination.lon}`;
+
+
+        const response =
+            await fetch(
+                "/api/eco-route",
+                {
+                    method:"POST",
+                    headers:{
+                        "Content-Type":
+                        "application/json"
+                    },
+                    body:JSON.stringify({
+
+                        start_lat:
+                            pickup.lat,
+
+                        start_lon:
+                            pickup.lon,
+
+                        end_lat:
+                            destination.lat,
+
+                        end_lon:
+                            destination.lon,
+
+                        weight:weight,
+
+                        vehicle:vehicle,
+
+                        vehicle_age:
+                            vehicleAge
+
+                    })
+                }
+            );
+
+
+        const data =
+            await response.json();
+
+
+        if(!response.ok){
+
+            throw new Error(
+                data.detail ||
+                "Route failed"
+            );
+
+        }
+
+
+        if(routeLayer){
+
+            map.removeLayer(
+                routeLayer
+            );
+
+        }
+
+
+        const best =
+            data.recommended;
+
+
+        routeLayer =
+            L.geoJSON(
+                best.geometry,
+                {
+                    style:{
+                        weight:6
+                    }
+                }
+            ).addTo(map);
+
+
+        map.fitBounds(
+            routeLayer.getBounds()
+        );
+
+
+        L.marker([
+            pickup.lat,
+            pickup.lon
+        ])
+        .addTo(map)
+        .bindPopup(
+            "📦 Pickup"
+        );
+
+
+        L.marker([
+            destination.lat,
+            destination.lon
+        ])
+        .addTo(map)
+        .bindPopup(
+            "🏁 Destination"
+        );
+
+
+        document.getElementById(
+            "routeResult"
+        ).innerHTML = `
+
+        <b>🌱 Recommended Eco Route</b><br><br>
+
+        Distance:
+        ${best.distance_km} km<br>
+
+        Duration:
+        ${best.duration_min} min<br>
+
+        Estimated CO₂:
+        ${best.carbon_kg} kg<br>
+
+        Score:
+        ${best.score}
+
+        `;
+
+
+        document.getElementById(
+            "carbonResult"
+        ).innerHTML = `
+
+        <h3>🌱 Carbon Footprint</h3>
+
+        Estimated Emission:
+        <b>${best.carbon_kg} kg CO₂</b>
+
+        <br><br>
+
+        This route is selected using
+        distance + estimated carbon score.
+
+        `;
+
+
+        refreshEnvironment();
+
+    }
+
+    catch(error){
+
+        document.getElementById(
+            "routeResult"
+        ).innerText =
+            "Error: " + error.message;
+
+    }
+
+}
+
+
+async function refreshEnvironment(){
+
+    if(!pickupLocation){
+
+        try{
+
+            pickupLocation =
+                await geocode(
+                    document.getElementById(
+                        "pickup"
+                    ).value
+                );
+
+        }
+
+        catch{
+
+            return;
+
+        }
+
+    }
+
+
+    try{
+
+        const weatherResponse =
+            await fetch(
+                `/api/weather?lat=${
+                    pickupLocation.lat
+                }&lon=${
+                    pickupLocation.lon
+                }`
+            );
+
+
+        const weather =
+            await weatherResponse.json();
+
+
+        const c =
+            weather.current;
+
+
+        document.getElementById(
+            "weather"
+        ).innerHTML = `
+
+        🌡️ Temperature:
+        <b>${c.temperature_2m}°C</b><br>
+
+        💧 Humidity:
+        <b>${c.relative_humidity_2m}%</b><br>
+
+        🌧️ Precipitation:
+        <b>${c.precipitation} mm</b><br>
+
+        💨 Wind:
+        <b>${c.wind_speed_10m} km/h</b>
+
+        `;
+
+
+        const aqiResponse =
+            await fetch(
+                `/api/aqi?lat=${
+                    pickupLocation.lat
+                }&lon=${
+                    pickupLocation.lon
+                }`
+            );
+
+
+        const aqi =
+            await aqiResponse.json();
+
+
+        const a =
+            aqi.current;
+
+
+        document.getElementById(
+            "aqi"
+        ).innerHTML = `
+
+        💨 European AQI:
+        <b>${a.european_aqi}</b><br>
+
+        PM2.5:
+        <b>${a.pm2_5} μg/m³</b><br>
+
+        PM10:
+        <b>${a.pm10} μg/m³</b>
+
+        `;
+
+    }
+
+    catch(error){
+
+        console.log(error);
+
+    }
+
+}
+
+
+function startTracking(){
+
+    if(!navigator.geolocation){
+
+        document.getElementById(
+            "gpsStatus"
+        ).innerText =
+            "GPS is not supported.";
+
+        return;
+
+    }
+
+
+    socket =
+        new WebSocket(
+            `ws://${location.host}/ws/location`
+        );
+
+
+    socket.onopen = () => {
+
+        document.getElementById(
+            "connection"
+        ).innerText =
+            "● LIVE";
+
+        document.getElementById(
+            "gpsStatus"
+        ).innerText =
+            "🟢 Live GPS tracking started.";
+
+    };
+
+
+    navigator.geolocation.watchPosition(
+
+        position => {
+
+            const lat =
+                position.coords.latitude;
+
+            const lon =
+                position.coords.longitude;
+
+
+            if(
+                socket &&
+                socket.readyState === WebSocket.OPEN
+            ){
+
+                socket.send(
+                    JSON.stringify({
+                        lat:lat,
+                        lon:lon
+                    })
+                );
+
+            }
+
+
+            if(!driverMarker){
+
+                driverMarker =
+                    L.marker([
+                        lat,
+                        lon
+                    ])
+                    .addTo(map)
+                    .bindPopup(
+                        "🚚 Live Driver"
+                    );
+
+            }
+
+            else{
+
+                driverMarker.setLatLng([
+                    lat,
+                    lon
+                ]);
+
+            }
+
+
+            map.setView(
+                [lat,lon],
+                15
+            );
+
+
+            document.getElementById(
+                "gpsStatus"
+            ).innerText =
+                `🟢 Live location:
+                ${lat.toFixed(5)},
+                ${lon.toFixed(5)}`;
+
+        },
+
+        error => {
+
+            document.getElementById(
+                "gpsStatus"
+            ).innerText =
+                "GPS permission required.";
+
+        },
+
+        {
+            enableHighAccuracy:true,
+            maximumAge:3000,
+            timeout:10000
+        }
+
+    );
+
+}
+
+
+async function loadStats(){
+
+    try{
+
+        const response =
+            await fetch(
+                "/api/stats"
+            );
+
+        const data =
+            await response.json();
+
+
+        document.getElementById(
+            "deliveries"
+        ).innerText =
+            data.deliveries;
+
+
+        document.getElementById(
+            "totalCarbon"
+        ).innerText =
+            data.carbon_kg + " kg";
+
+
+        document.getElementById(
+            "gpsPoints"
+        ).innerText =
+            data.gps_points;
+
+    }
+
+    catch{}
+
+}
+
+
+initMap();
+
+loadStats();
+
+setInterval(
+    loadStats,
+    5000
+);
+
+</script>
+
+</body>
+</html>
